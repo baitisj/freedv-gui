@@ -33,6 +33,7 @@ constexpr int LEFT_MARGIN = 38;
 // which keeps the picture steady as band noise and AGC come and go. This
 // many dB above the floor is full white.
 constexpr float DISPLAY_RANGE_DB = 24.0f;
+constexpr float PEAK_RANGE_DB = 30.0f;
 
 } // namespace
 
@@ -163,7 +164,12 @@ void GlissandoScope::addRow()
 
     std::vector<float> sorted(spectrum_);
     std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
-    float floor = sorted[sorted.size() / 2];
+    float peak = *std::max_element(spectrum_.begin(), spectrum_.end());
+    // On a quiet channel (a loopback cable, or a receiver with the RF gain
+    // down) the median is the display's floor and a strong melody's window
+    // leakage would paint the whole row white; never let the floor sit more
+    // than PEAK_RANGE_DB under the loudest bin.
+    float floor = std::max(sorted[sorted.size() / 2], peak - PEAK_RANGE_DB);
 
     double binsPerHz = (spectrum_.size() - 1) / nyquist;
     for (int x = 0; x < historyWidth_; x++)
