@@ -15,4 +15,4 @@ systemctl --user enable --now pipewire.service
 systemctl --user enable --now wireplumber.service
 metacity --sm-disable --replace &
 sleep 5
-./test/test_rade_loss.sh
+./test/test_zeros.sh txrx 700D

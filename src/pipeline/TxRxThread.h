@@ -68,7 +68,6 @@ public:
         , inputSampleRate_(inputSampleRate)
         , outputSampleRate_(outputSampleRate)
         , equalizedMicAudioLink_(std::move(micAudioLink))
-        , hasEooBeenSent_(false)
         , helper_(std::move(helper))
         , deferReset_(false)
         , dataTxInProgress_(false)
@@ -82,15 +81,6 @@ public:
         inputSamplesZeros_ = std::make_unique<short[]>(numSamples);
         assert(inputSamplesZeros_ != nullptr);
         memset(inputSamplesZeros_.get(), 0, numSamples * sizeof(short));
-
-        // Holds resampled EOO output that couldn't be written to outfifo1 yet
-        // (e.g. because it was momentarily full) so it can be retried on a
-        // later call instead of being silently dropped. The pipeline hands
-        // back the entire EOO block in a single execute() call, and its
-        // resampling stage caps output at one second's worth of samples, so
-        // sizing this to outputSampleRate_ is sufficient headroom.
-        pendingEooSamples_ = std::make_unique<short[]>(outputSampleRate_);
-        assert(pendingEooSamples_ != nullptr);
     }
     
     virtual ~TxRxThread()
@@ -128,9 +118,6 @@ private:
     int outputSampleRate_;
     std::shared_ptr<LinkStep> equalizedMicAudioLink_;
     BeepStep* beepStep_;
-    bool hasEooBeenSent_;
-    std::unique_ptr<short[]> pendingEooSamples_;
-    int pendingEooCount_;
     std::shared_ptr<IRealtimeHelper> helper_;
     std::unique_ptr<short[]> inputSamples_;
     std::unique_ptr<short[]> inputSamplesZeros_;

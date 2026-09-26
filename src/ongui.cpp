@@ -70,7 +70,6 @@ extern std::atomic<bool>     g_totBeepActive;
 
 static wxString bandNameForFilter(FilterFrequency band);
 
-extern std::atomic<bool> g_eoo_enqueued;
 
 void clickTune(float frequency); // callback to pass new click freq
 
@@ -275,19 +274,6 @@ void MainFrame::OnToolsOptions(wxCommandEvent& event)
         // Show/hide stats box
         statsBox->Show(wxGetApp().appConfiguration.showDecodeStats);
         
-        // Show/hide legacy modes
-        modeBox->Show(wxGetApp().appConfiguration.enableLegacyModes);
-        
-        bool isEnabled = wxGetApp().appConfiguration.enableLegacyModes && !m_rbRADE->GetValue();
-        squelchBox->Show(wxGetApp().appConfiguration.enableLegacyModes);
-        m_sliderSQ->Enable(isEnabled);
-        m_ckboxSQ->Enable(isEnabled);
-        m_textSQ->Enable(isEnabled);
-        m_btnCenterRx->Enable(isEnabled);
-        m_btnCenterRx->Show(wxGetApp().appConfiguration.enableLegacyModes);
-        m_BtnReSync->Enable(isEnabled);
-        m_BtnReSync->Show(wxGetApp().appConfiguration.enableLegacyModes);
-
         // XXX - with really short windows, wxWidgets sometimes doesn't size
         // the components properly until the user resizes the window (even if only
         // by a pixel or two). As a really hacky workaround, we emulate this behavior
@@ -1519,35 +1505,8 @@ void MainFrame::togglePTT(void) {
             wxGetApp().Yield(true);
         }
         
-        // Trigger end of TX processing. This causes us to wait for the remaining samples
-        // to flow through the system before toggling PTT.  Note that there is a 1000ms 
-        // timeout as backup.
-        if (freedvInterface.getCurrentMode() == FREEDV_MODE_RADE)
-        {
-            log_info("Waiting for EOO to be queued");
-            endingTx.store(true, std::memory_order_release);
-            
-            auto beginTime = std::chrono::high_resolution_clock::now();
-            while(true)
-            {
-                if (g_eoo_enqueued.load(std::memory_order_acquire))
-                {
-                    log_info("Detected that EOO has been enqueued");
-                    break;
-                }
- 
-                wxThread::Sleep(1);
-                wxGetApp().Yield(true);
-
-                auto endTime = std::chrono::high_resolution_clock::now();
-                if ((endTime - beginTime) >= std::chrono::seconds(2))
-                {
-                    log_warn("Timed out waiting for EOO to be enqueued");
-                    break;
-                }
-            }
-        }
-
+        // Wait for the remaining samples to flow through the system before
+        // toggling PTT. Note that there is a 1000ms timeout as backup.
         int sample = g_outfifo1_empty.load(std::memory_order_relaxed);
         before = highResClock.now();
         while(true)

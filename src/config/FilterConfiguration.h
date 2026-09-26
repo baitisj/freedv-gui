@@ -90,7 +90,6 @@ public:
     
     ConfigurationDataElement<bool> noiseReductionEnable;
     ConfigurationDataElement<bool> agcEnabled;
-    ConfigurationDataElement<bool> bwExpandEnabled;
     ConfigurationDataElement<bool> enable700CEqualizer;
     
     virtual void load(wxConfigBase* config) override;

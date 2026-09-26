@@ -7,6 +7,18 @@ tune. The mode is designed in
 NumPy prototype in `prototype/`). This fork carries a C++ port of that modem
 and a front end for it.
 
+## What this build carries
+
+This branch is the Glissando app, not a FreeDV release, and it does not
+carry RADE. The FreeDV voice modes left are the codec2 ones (700D, 700E and
+1600), always shown in the main window's Mode box, and text chat runs over
+either codec2's DATAC13/DATAC4 data modes or Glissando. The shared
+[freedv-backend](https://github.com/tmiw/freedv-backend) library is no
+longer fetched at configure time: `backend/` holds a copy of it with RADE,
+RADE text, FARGAN and the Opus bandwidth expander taken out (see
+`backend/README.md`). Settings a RADE build wrote are harmless: a saved
+RADE mode falls back to 700D.
+
 ## Two floating windows
 
 * **The console** (`Tools -> Glissando Console...`, or start FreeDV with
@@ -83,7 +95,7 @@ scales and tuning offsets in noise.
 
 The text chat loopback bench runs Glissando too:
 
-    FREEDV_TEST_MODE=4 FREEDV_EXTRA_ARGS=--glissando test/test_text_chat_loopback.sh up
+    FREEDV_EXTRA_ARGS=--glissando test/test_text_chat_loopback.sh up
 
 Press Engage in both consoles, open both Transmission logs and send.
 
@@ -91,7 +103,8 @@ Press Engage in both consoles, open both Transmission logs and send.
 
 ## Packaging
 
-The fork's existing AppImage path (`appimage/make-appimage.sh`, built in
-CI by `cmake-linux.yml`) already carries the console, since it is part of
-the `freedv` binary. A Glissando-first AppImage needs only a desktop entry
-that runs `freedv --glissando` and an icon.
+The fork's AppImage script (`appimage/make-appimage.sh`) already carries
+the console, since it is part of the `freedv` binary. A Glissando-first
+AppImage needs a desktop entry that runs `freedv --glissando` and an icon.
+The CI workflows in `.github/workflows` still describe upstream's RADE
+builds and tests and need trimming before they can build it.

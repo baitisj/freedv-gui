@@ -43,7 +43,6 @@ FilterConfiguration::FilterConfiguration()
     , codec2LPCPostFilterBeta("/Filter/codec2LPCPostFilter/Beta", CODEC2_LPC_PF_BETA*100)
     , noiseReductionEnable("/Filter/speexpp_enable", true)
     , agcEnabled("/Filter/agcEnable", true)
-    , bwExpandEnabled("/Filter/bwExpandEnable", true)
     , enable700CEqualizer("/Filter/700C_EQ", true)
 {
     codec2LPCPostFilterGamma.setSaveProcessor(GammaBetaSaveProcessor_);
@@ -80,7 +79,6 @@ void FilterConfiguration::load(wxConfigBase* config)
     load_(config, noiseReductionEnable);
     load_(config, enable700CEqualizer);
     load_(config, agcEnabled);
-    load_(config, bwExpandEnabled);
 }
 
 void FilterConfiguration::save(wxConfigBase* config)
@@ -96,5 +94,4 @@ void FilterConfiguration::save(wxConfigBase* config)
     save_(config, noiseReductionEnable);
     save_(config, enable700CEqualizer);
     save_(config, agcEnabled);
-    save_(config, bwExpandEnabled);
 }

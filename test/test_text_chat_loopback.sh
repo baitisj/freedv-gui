@@ -19,10 +19,8 @@ REPO_ROOT="$( cd -- "$SCRIPTPATH/.." >/dev/null 2>&1 ; pwd -P )"
 
 WORKDIR="${FREEDV_TEXT_CHAT_WORKDIR:-$(pwd)/text_chat_loopback}"
 
-# RADE by default, because that is what the fork is actually run in. Two RADE
-# instances are heavy: on a small machine set FREEDV_TEST_MODE=4 (700D) so a
-# CPU starved dropout does not get mistaken for a protocol bug.
-FREEDV_TEST_MODE="${FREEDV_TEST_MODE:-257}"
+# FreeDV voice mode for both stations: 4 is 700D, 5 is 700E, 0 is 1600.
+FREEDV_TEST_MODE="${FREEDV_TEST_MODE:-4}"
 
 # Text chat transmits only where US rules permit data, and not at all while the
 # frequency is unknown, which it is with no rig control and nothing typed in.

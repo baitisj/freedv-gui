@@ -593,7 +593,6 @@ private:
     private:
         const wxString SNR_FORMAT_STR;
         const wxString MODE_FORMAT_STR;
-        const wxString MODE_RADE_FORMAT_STR;
         const wxString NO_SNR_LABEL;
         const wxString EMPTY_STR;
         const wxString MODEM_LABEL;

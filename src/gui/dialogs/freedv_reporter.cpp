@@ -287,12 +287,6 @@ FreeDVReporterDialog::FreeDVReporterDialog(wxWindow* parent, wxWindowID id, cons
         {
             log_info("Creating col %d", col);
             auto visible = (bool)wxGetApp().appConfiguration.reportingConfiguration.freedvReporterColumnVisibility->at(col);
-
-            // Hide RX Mode column if legacy modes aren't enabled
-            if (col == LAST_RX_MODE_COL)
-            {
-                visible &= wxGetApp().appConfiguration.enableLegacyModes;
-            }
             createColumn_(col, visible);
         }
     }
@@ -438,11 +432,6 @@ FreeDVReporterDialog::FreeDVReporterDialog(wxWindow* parent, wxWindowID id, cons
         auto menuItem = showMenu_->Append(wxID_HIGHEST + 100 + item.first, item.second, wxEmptyString, wxITEM_CHECK);
         menuItem->Check(wxGetApp().appConfiguration.reportingConfiguration.freedvReporterColumnVisibility->at(item.first));
         this->Connect(wxID_HIGHEST + 100 + item.first, wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(FreeDVReporterDialog::OnShowColumn));
-
-        if (item.first == LAST_RX_MODE_COL && !wxGetApp().appConfiguration.enableLegacyModes)
-        {
-            menuItem->Enable(false);
-        }
     }
 
     std::vector<int> idleLongerThanMinutes { 30, 60, 90, 120 };
@@ -810,11 +799,8 @@ void FreeDVReporterDialog::refreshLayout()
         renderer->SetAlignment(wxALIGN_RIGHT | wxALIGN_CENTRE_VERTICAL);
     }
     
-    // Hide/show legacy columns
     item = getColumnForModelColId_(LAST_RX_MODE_COL);
-    item->SetHidden(!wxGetApp().appConfiguration.enableLegacyModes || !wxGetApp().appConfiguration.reportingConfiguration.freedvReporterColumnVisibility->at(LAST_RX_MODE_COL));
-    auto menuItem = showMenu_->FindChildItem(wxID_HIGHEST + 100 + LAST_RX_MODE_COL);
-    menuItem->Enable(wxGetApp().appConfiguration.enableLegacyModes);
+    item->SetHidden(!wxGetApp().appConfiguration.reportingConfiguration.freedvReporterColumnVisibility->at(LAST_RX_MODE_COL));
 
     // Update filter status in window
     updateFilterStatus_();

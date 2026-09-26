@@ -145,7 +145,6 @@ class TopFrame : public wxFrame
         
         wxButton*     m_logQSO;
 
-        wxRadioButton *m_rbRADE;
         wxRadioButton *m_rb700d;
         wxRadioButton *m_rb700e;
         wxRadioButton *m_rb1600;

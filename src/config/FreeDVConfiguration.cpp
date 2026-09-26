@@ -113,7 +113,7 @@ FreeDVConfiguration::FreeDVConfiguration()
     , waterfallColor("/Waterfall/Color", 0)
     , statsResetTimeSecs("/Stats/ResetTime", 10)
         
-    , currentFreeDVMode("/Audio/mode", FREEDV_MODE_RADE)
+    , currentFreeDVMode("/Audio/mode", FREEDV_MODE_700D)
         
     , currentSpectrumAveraging("/Plot/Spectrum/CurrentAveraging", 0)
     
@@ -130,7 +130,6 @@ FreeDVConfiguration::FreeDVConfiguration()
     , reportingUserMsgColWidth("/Windows/FreeDVReporter/reportingUserMsgColWidth", 130)
         
     , showDecodeStats("/Debug/showDecodeStats", false)
-    , enableLegacyModes("/Modem/enableLegacyModes", false)
     , autoStartOnLaunch("/Modem/autoStartOnLaunch", false)
 {
     // empty
@@ -274,7 +273,6 @@ void FreeDVConfiguration::load(wxConfigBase* config)
     load_(config, reportingUserMsgColWidth);
     
     load_(config, showDecodeStats);
-    load_(config, enableLegacyModes);
     load_(config, autoStartOnLaunch);
 
     load_(config, txAttenByBand);
@@ -381,7 +379,6 @@ void FreeDVConfiguration::save(wxConfigBase* config)
     save_(config, reportingUserMsgColWidth);
     
     save_(config, showDecodeStats);
-    save_(config, enableLegacyModes);
     save_(config, autoStartOnLaunch);
 
     save_(config, txAttenByBand);

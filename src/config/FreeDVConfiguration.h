@@ -147,7 +147,6 @@ public:
     
     ConfigurationDataElement<bool> showDecodeStats;
     
-    ConfigurationDataElement<bool> enableLegacyModes;
 
     ConfigurationDataElement<bool> autoStartOnLaunch;
 

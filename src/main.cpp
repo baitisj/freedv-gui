@@ -75,8 +75,6 @@
 #include <gtk/gtk.h>
 #endif // defined(__WXGTK__) && defined(HAS_GTK3)
 
-#include "rade_api.h"
-
 using namespace std::chrono_literals;
 using namespace std::placeholders;
 
@@ -139,7 +137,6 @@ float g_snr;
 std::atomic<bool>  g_half_duplex;
 std::atomic<bool>  g_voice_keyer_tx;
 std::atomic<bool>  g_agcEnabled;
-std::atomic<bool>  g_bwExpandEnabled;
 // sending and receiving Call Sign data
 std::atomic<GenericFIFO<short>*> g_txDataInFifo;
 struct FIFO         *g_rxDataOutFifo;
@@ -262,8 +259,6 @@ wxString utTxFile;
 wxString utTxOutFile;
 wxString utRxFile;
 wxString utRxOutFile;
-std::string utTxFeatureFile;
-std::string utRxFeatureFile;
 long utTxTimeSeconds;
 long utTxAttempts;
 
@@ -343,11 +338,7 @@ void MainApp::UnitTest_()
 
     // Select FreeDV mode.
     wxRadioButton* modeBtn = nullptr;
-    if (utFreeDVMode == "RADEV1")
-    {
-        modeBtn = frame->m_rbRADE;
-    }
-    else if (utFreeDVMode == "700D")
+    if (utFreeDVMode == "700D")
     {
         modeBtn = frame->m_rb700d;
     }
@@ -593,8 +584,6 @@ void MainApp::OnInitCmdLine(wxCmdLineParser& parser)
     parser.AddOption("rxoutfile", wxEmptyString, "In UT mode, records RX output to the given WAV file.");
     parser.AddOption("txfile", wxEmptyString, "In UT mode, pipes given WAV file through transmit pipeline.");
     parser.AddOption("txoutfile", wxEmptyString, "In UT mode, records TX output to the given WAV file.");
-    parser.AddOption("rxfeaturefile", wxEmptyString, "Capture RX features from RADE decoder into the provided file.");
-    parser.AddOption("txfeaturefile", wxEmptyString, "Capture TX features from FARGAN encoder into the provided file.");
     parser.AddOption("txtime", "60", "In UT mode, the amount of time to transmit (default 60 seconds)", wxCMD_LINE_VAL_NUMBER);
     parser.AddOption("txattempts", "1", "In UT mode, the number of times to transmit (default 1)", wxCMD_LINE_VAL_NUMBER);
     parser.AddSwitch("g", "glissando", "Start with the Glissando console in place of the main window.");
@@ -761,20 +750,6 @@ bool MainApp::OnCmdLineParsed(wxCmdLineParser& parser)
         }
     }
     
-    wxString utRxFeatureFileTmp; 
-    if (parser.Found("rxfeaturefile", &utRxFeatureFileTmp))
-    {
-        utRxFeatureFile = utRxFeatureFileTmp.ToUTF8();
-        log_info("Capturing RADE RX features into file %s", utRxFeatureFile.c_str());
-    }
-   
-    wxString utTxFeatureFileTmp; 
-    if (parser.Found("txfeaturefile", &utTxFeatureFileTmp))
-    {
-        utTxFeatureFile = utTxFeatureFileTmp.ToUTF8();
-        log_info("Capturing RADE TX features into file %s", utTxFeatureFile.c_str());
-    }
-    
     return true;
 }
 
@@ -872,9 +847,6 @@ bool MainApp::OnInit()
     }
 #endif // UNOFFICIAL_RELEASE
     
-    // Initialize RADE.
-    rade_initialize();
- 
     m_rTopWindow = wxRect(0, 0, 0, 0);
 
      // Create the main application window
@@ -963,7 +935,6 @@ void MainFrame::loadConfiguration_()
     g_agcEnabled.store(wxGetApp().appConfiguration.filterConfiguration.agcEnabled, std::memory_order_release);
     
     // Load BW expander state
-    g_bwExpandEnabled.store(wxGetApp().appConfiguration.filterConfiguration.bwExpandEnabled, std::memory_order_release);
     
     g_txLevel = wxGetApp().appConfiguration.transmitLevel;
     float dbLoss = g_txLevel / 10.0;
@@ -1076,37 +1047,12 @@ setDefaultMode:
     {
         m_rb700e->SetValue(1);
     }
-    else if (mode == FREEDV_MODE_RADE)
-    {
-        m_rbRADE->SetValue(1);
-    }
     else
     {
-        // Default to RADE otherwise
+        // Anything else (such as RADE, which this build no longer has)
+        // falls back to the default mode.
         mode = defaultMode;
         goto setDefaultMode;
-    }
-    
-    // Disable controls not supported by RADE.
-    bool isEnabled = wxGetApp().appConfiguration.enableLegacyModes && mode != FREEDV_MODE_RADE;
-    squelchBox->Show(wxGetApp().appConfiguration.enableLegacyModes);
-    m_sliderSQ->Enable(isEnabled);
-    m_ckboxSQ->Enable(isEnabled);
-    m_textSQ->Enable(isEnabled);
-    m_btnCenterRx->Enable(isEnabled);
-    m_btnCenterRx->Show(wxGetApp().appConfiguration.enableLegacyModes);
-    m_BtnReSync->Enable(isEnabled);
-    m_BtnReSync->Show(wxGetApp().appConfiguration.enableLegacyModes);
-
-    if (!isEnabled)
-    {
-        m_textBits->SetLabel("Bits: unk");
-        m_textErrors->SetLabel("Errs: unk");
-        m_textBER->SetLabel("BER: unk");
-        m_textFreqOffset->SetLabel("FrqOff: unk");
-        m_textSyncMetric->SetLabel("Sync: unk");
-        m_textCodec2Var->SetLabel("Var: unk");
-        m_textClockOffset->SetLabel("ClkOff: unk");
     }
     
     pConfig->SetPath(wxT("/"));
@@ -1219,9 +1165,6 @@ setDefaultMode:
     }
     
     statsBox->Show(wxGetApp().appConfiguration.showDecodeStats);
-    modeBox->Show(wxGetApp().appConfiguration.enableLegacyModes);
-    m_BtnReSync->Show(wxGetApp().appConfiguration.enableLegacyModes);
-
     // Initialize FreeDV Reporter as required
     CallAfter(&MainFrame::initializeFreeDVReporter_);
     
@@ -1241,13 +1184,9 @@ setDefaultMode:
 MainFrame::MainFrame(wxWindow *parent) : TopFrame(parent, wxID_ANY, _("FreeDV ") + wxString::FromUTF8(GetFreeDVVersion().c_str())),
 
     // Create needed strings in advance so we don't need to continually 
-    // reallocate memory every time through OnTimer() below. We prioritize
-    // the strings that are used when RADE is selected as this mode is not
-    // fully optimized for real-time use yet (i.e. it dynamically allocates
-    // memory while processing audio).
+    // reallocate memory every time through OnTimer() below.
     SNR_FORMAT_STR("%ddB"),
     MODE_FORMAT_STR("Mode: %s"),
-    MODE_RADE_FORMAT_STR("Mode: RADEV1"),
     NO_SNR_LABEL("--"),
     EMPTY_STR(""),
     MODEM_LABEL("Modem"),
@@ -1511,9 +1450,6 @@ MainFrame::MainFrame(wxWindow *parent) : TopFrame(parent, wxID_ANY, _("FreeDV ")
     }
 #endif
     
-    // Print RADE API version. This also forces the RADE library to be linked.
-    log_info("Using RADE API version %d", rade_version());
-
     if (wxGetApp().appConfiguration.firstTimeUse)
     {
         // Initial setup. Display Easy Setup dialog.
@@ -1698,15 +1634,13 @@ void MainFrame::exportConfiguration_(wxConfigBase* config)
     wxGetApp().appConfiguration.transmitLevel = g_txLevel;
     autoSaveCurrentBandLevels_(false);
 
-    int mode = FREEDV_MODE_RADE;
+    int mode = FREEDV_MODE_700D;
     if (m_rb1600->GetValue())
         mode = 0;
     if (m_rb700d->GetValue())
         mode = 4;
     if (m_rb700e->GetValue())
         mode = 5;
-    if (m_rbRADE->GetValue())
-        mode = FREEDV_MODE_RADE;
     
     wxGetApp().appConfiguration.currentFreeDVMode = mode;
     wxGetApp().appConfiguration.save(config);
@@ -1960,9 +1894,6 @@ MainFrame::~MainFrame()
     wxGetApp().rigPttController = nullptr;
     wxGetApp().m_reporters.clear();
 
-    // Clean up RADE.
-    rade_finalize();
-    
     auto engine = AudioEngineFactory::GetAudioEngine();
     engine->stop();
     engine->setOnEngineError(nullptr, nullptr);
@@ -2390,32 +2321,6 @@ void MainFrame::OnTimer(wxTimerEvent &evt)
                     }
                 }
             }
-            else if (
-                wxGetApp().m_sharedReporterObject && 
-                freedvInterface.getCurrentMode() == FREEDV_MODE_RADE && 
-                syncState)
-            {               
-                // Special case for RADE--report '--' for callsign so we can
-                // at least report that we're receiving *something*.
-                int64_t freq = wxGetApp().appConfiguration.reportingConfiguration.reportingFrequency;
-
-                // Only report if there's a valid reporting frequency and if we're not playing 
-                // a recording through ourselves (to avoid false reports).
-                wxGetApp().m_reportCounter = (wxGetApp().m_reportCounter + 1) % 10;
-                if (freq > 0 && wxGetApp().m_reportCounter == 0)
-                {
-                    wxGetApp().m_reportCounter = 0;
-                    if (!g_playFileFromRadio.load(std::memory_order_acquire))
-                    {                
-                        wxGetApp().m_sharedReporterObject->addReceiveRecord(
-                            "",
-                            freedvInterface.getCurrentModeStr(),
-                            freq,
-                            pendingSnr
-                        );
-                    }
-                }
-            }
         }
     
         // Run time update of EQ filters -----------------------------------
@@ -2467,9 +2372,7 @@ void MainFrame::OnTimer(wxTimerEvent &evt)
         g_channel_noise.store(wxGetApp().m_channel_noise, std::memory_order_release);
 
         // update stats on main page
-        wxString modeString; 
-        if (g_mode == FREEDV_MODE_RADE) modeString = MODE_RADE_FORMAT_STR; // optimization to reduce allocs
-        else modeString = wxString::Format(MODE_FORMAT_STR, freedvInterface.getCurrentModeStr());
+        wxString modeString = wxString::Format(MODE_FORMAT_STR, freedvInterface.getCurrentModeStr());
         bool relayout = 
             m_textCurrentDecodeMode->GetLabel() != modeString &&
             !realigned_;
@@ -2500,15 +2403,6 @@ void MainFrame::OnTimer(wxTimerEvent &evt)
         wxString freqOffset = wxString::Format(FRQ_OFF_FMT, freedvInterface.getCurrentRxModemOffset());
         m_textFreqOffset->SetLabel(freqOffset);
 
-        if (g_mode == FREEDV_MODE_RADE)
-        {
-            m_textBits->SetLabel(BITS_UNK_LABEL);
-            m_textErrors->SetLabel(ERRS_UNK_LABEL);
-            m_textBER->SetLabel(BER_UNK_LABEL);
-            m_textSyncMetric->SetLabel(SYNC_UNK_LABEL);
-            m_textCodec2Var->SetLabel(VAR_UNK_LABEL);
-        }
-        else
         {
             wxString bits = wxString::Format(BITS_FMT, freedvInterface.getTotalBits()); 
             m_textBits->SetLabel(bits);
@@ -2534,11 +2428,6 @@ void MainFrame::OnTimer(wxTimerEvent &evt)
 
         if (state) {
 
-            if (g_mode == FREEDV_MODE_RADE)
-            {
-                m_textClockOffset->SetLabel(CLK_OFF_UNK_LABEL);
-            }
-            else
             {
                 wxString clockOffset = wxString::Format(CLK_OFF_FMT, (int)round(freedvInterface.getCurrentRxModemStats()->clock_offset*1E6) % 10000);
                 m_textClockOffset->SetLabel(clockOffset);
@@ -2709,10 +2598,6 @@ void MainFrame::OnChangeTxMode( wxCommandEvent& event )
     {
         newMode = FREEDV_MODE_1600;
     }
-    else if (eventObject == m_rbRADE || (eventObject == nullptr && m_rbRADE->GetValue())) 
-    {
-        newMode = FREEDV_MODE_RADE;
-    }
     else if (eventObject == m_rb700d || (eventObject == nullptr && m_rb700d->GetValue())) 
     {
         newMode = FREEDV_MODE_700D;
@@ -2741,14 +2626,6 @@ void MainFrame::OnChangeTxMode( wxCommandEvent& event )
         {
             obj->transmit(freedvInterface.getCurrentTxModeStr(), txStatus);
         }
-    
-        // Disable controls not supported by RADE
-        bool isEnabled = g_mode != FREEDV_MODE_RADE;
-        m_sliderSQ->Enable(isEnabled);
-        m_ckboxSQ->Enable(isEnabled);
-        m_textSQ->Enable(isEnabled);
-        m_btnCenterRx->Enable(isEnabled);
-        m_BtnReSync->Enable(isEnabled);
     }
 }
 
@@ -2809,24 +2686,15 @@ void MainFrame::performFreeDVOn_()
         wxCommandEvent tmpEvent;
         OnChangeTxMode(tmpEvent);
 
-        if (!wxGetApp().appConfiguration.enableLegacyModes || !wxGetApp().appConfiguration.multipleReceiveEnabled || m_rbRADE->GetValue())
+        if (!wxGetApp().appConfiguration.multipleReceiveEnabled)
         {
             m_rb1600->Disable();
-            m_rbRADE->Disable();
             m_rb700d->Disable();
             m_rb700e->Disable();
-            
-            if (!wxGetApp().appConfiguration.enableLegacyModes)
-            {
-                // If legacy modes are not enabled, RADE is the only option.
-                g_mode = FREEDV_MODE_RADE;
-            }
             freedvInterface.addRxMode(g_mode);
         }
         else
         {
-            m_rbRADE->Disable();
-                    
             int rxModes[] = {
                 FREEDV_MODE_1600,
                 FREEDV_MODE_700E,
@@ -2842,7 +2710,6 @@ void MainFrame::performFreeDVOn_()
             if (g_nSoundCards <= 1)
             {
                 m_rb1600->Disable();
-                m_rbRADE->Disable();
                 m_rb700d->Disable();
                 m_rb700e->Disable();
             }
@@ -3227,7 +3094,6 @@ void MainFrame::performFreeDVOff_()
         m_btnTogPTT->Disable();
         m_togBtnVoiceKeyer->Disable();
     
-        m_rbRADE->Enable();
         m_rb1600->Enable();
         m_rb700d->Enable();
         m_rb700e->Enable();
