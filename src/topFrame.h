@@ -175,6 +175,7 @@ class TopFrame : public wxFrame
         virtual void OnToolsFreeDVReporter( wxCommandEvent& event ) { event.Skip(); }
         virtual void OnToolsFreeDVReporterUI( wxUpdateUIEvent& event ) { event.Skip(); }
         virtual void OnToolsTextMessaging( wxCommandEvent& event ) { event.Skip(); }
+        virtual void OnToolsGlissando( wxCommandEvent& event ) { event.Skip(); }
         virtual void OnToolsTextMessagingUI( wxUpdateUIEvent& event ) { event.Skip(); }
         virtual void OnToolsAudio( wxCommandEvent& event ) { event.Skip(); }
         virtual void OnToolsAudioUI( wxUpdateUIEvent& event ) { event.Skip(); }

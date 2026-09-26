@@ -82,6 +82,17 @@ FreeDVConfiguration::FreeDVConfiguration()
     , halfDuplexMode("/Rig/HalfDuplex", true)
     , multipleReceiveEnabled("/Rig/MultipleRx", true)
     , textChatUsDataSegmentsOnly("/TextChat/UsDataSegmentsOnly", true)
+    , glissandoEnabled("/Glissando/Enabled", false)
+    , glissandoGear("/Glissando/Gear", 3)
+    , glissandoAutoGear("/Glissando/AutoGear", true)
+    , glissandoScale("/Glissando/Scale", "pentatonic")
+    , glissandoTuningDeciHz("/Glissando/TuningDeciHz", 0)
+    , glissandoListenAllGears("/Glissando/ListenAllGears", true)
+    , glissandoScanRateDeci("/Glissando/ScanRateDeci", 40)
+    , glissandoWindowLeft("/Glissando/WindowLeft", -1)
+    , glissandoWindowTop("/Glissando/WindowTop", -1)
+    , glissandoWindowWidth("/Glissando/WindowWidth", 1040)
+    , glissandoWindowHeight("/Glissando/WindowHeight", 720)
     , multipleReceiveOnSingleThread("/Rig/SingleRxThread", true)
         
     , quickRecordRawPath("/QuickRecord/SavePath", _(""))
@@ -213,6 +224,17 @@ void FreeDVConfiguration::load(wxConfigBase* config)
     load_(config, halfDuplexMode);
     load_(config, multipleReceiveEnabled);
     load_(config, textChatUsDataSegmentsOnly);
+    load_(config, glissandoEnabled);
+    load_(config, glissandoGear);
+    load_(config, glissandoAutoGear);
+    load_(config, glissandoScale);
+    load_(config, glissandoTuningDeciHz);
+    load_(config, glissandoListenAllGears);
+    load_(config, glissandoScanRateDeci);
+    load_(config, glissandoWindowLeft);
+    load_(config, glissandoWindowTop);
+    load_(config, glissandoWindowWidth);
+    load_(config, glissandoWindowHeight);
     load_(config, multipleReceiveOnSingleThread);
     
     load_(config, freedv700Clip);
@@ -311,6 +333,17 @@ void FreeDVConfiguration::save(wxConfigBase* config)
     save_(config, halfDuplexMode);
     save_(config, multipleReceiveEnabled);
     save_(config, textChatUsDataSegmentsOnly);
+    save_(config, glissandoEnabled);
+    save_(config, glissandoGear);
+    save_(config, glissandoAutoGear);
+    save_(config, glissandoScale);
+    save_(config, glissandoTuningDeciHz);
+    save_(config, glissandoListenAllGears);
+    save_(config, glissandoScanRateDeci);
+    save_(config, glissandoWindowLeft);
+    save_(config, glissandoWindowTop);
+    save_(config, glissandoWindowWidth);
+    save_(config, glissandoWindowHeight);
     save_(config, multipleReceiveOnSingleThread);
     
     save_(config, quickRecordRawPath);

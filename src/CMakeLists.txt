@@ -10,6 +10,7 @@ set(FREEDV_SOURCES
     playrec.cpp
     ongui.cpp
     freedv_interface.cpp
+    glissando_host.cpp
 )
 
 set(FREEDV_LINK_LIBS_OSX
@@ -26,6 +27,7 @@ include_directories(${CMAKE_BINARY_DIR}/generated)
 # Compile FreeDV components
 add_subdirectory(audio)
 add_subdirectory(config)
+add_subdirectory(glissando)
 add_subdirectory(gui)
 add_subdirectory(logging)
 add_subdirectory(pipeline)
@@ -56,10 +58,10 @@ endif(APPLE)
 
 if(APPLE)
 target_compile_options(FreeDV PRIVATE ${WARNINGS_AS_ERRORS_FLAGS})
-target_link_libraries(FreeDV fdv_audio fdv_audio_pipeline fdv_audio_pipeline_extra fdv_config fdv_gui_controls fdv_gui_dialogs fdv_gui_util fdv_logging fdv_os_wrapper fdv_rig_control fdv_reporting fdv_sox fdv_text_messaging fdv_util codec2 git_version)
+target_link_libraries(FreeDV fdv_audio fdv_audio_pipeline fdv_audio_pipeline_extra fdv_config fdv_gui_controls fdv_gui_dialogs fdv_gui_glissando fdv_gui_util fdv_logging fdv_os_wrapper fdv_rig_control fdv_reporting fdv_sox fdv_text_messaging fdv_util codec2 git_version)
 else(APPLE)
 target_compile_options(freedv PRIVATE ${WARNINGS_AS_ERRORS_FLAGS})
-target_link_libraries(freedv fdv_audio fdv_audio_pipeline fdv_audio_pipeline_extra fdv_config fdv_gui_controls fdv_gui_dialogs fdv_gui_util fdv_logging fdv_os_wrapper fdv_rig_control fdv_reporting fdv_sox fdv_text_messaging fdv_util codec2 git_version)
+target_link_libraries(freedv fdv_audio fdv_audio_pipeline fdv_audio_pipeline_extra fdv_config fdv_gui_controls fdv_gui_dialogs fdv_gui_glissando fdv_gui_util fdv_logging fdv_os_wrapper fdv_rig_control fdv_reporting fdv_sox fdv_text_messaging fdv_util codec2 git_version)
 endif(APPLE)
 
 # Add dependencies for other statically built libraries, if applicable.

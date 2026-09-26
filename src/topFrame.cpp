@@ -467,6 +467,10 @@ TopFrame::TopFrame(wxWindow* parent, wxWindowID id, const wxString& title, const
     wxMenuItem* m_menuItemTextMessaging;
     m_menuItemTextMessaging = new wxMenuItem(tools, wxID_ANY, wxString(_("&Text Chat...")) , _("Opens the text chat window."), wxITEM_NORMAL);
     tools->Append(m_menuItemTextMessaging);
+
+    wxMenuItem* m_menuItemGlissando;
+    m_menuItemGlissando = new wxMenuItem(tools, wxID_ANY, wxString(_("&Glissando Console...")) , _("Opens the Glissando melodic chirp mode console; text chat then goes out as Glissando."), wxITEM_NORMAL);
+    tools->Append(m_menuItemGlissando);
     
     wxMenuItem* toolsSeparator1 = new wxMenuItem(tools, wxID_SEPARATOR);
     tools->Append(toolsSeparator1);
@@ -960,6 +964,7 @@ TopFrame::TopFrame(wxWindow* parent, wxWindowID id, const wxString& title, const
     this->Connect(m_menuItemFreeDVReporter->GetId(), wxEVT_UPDATE_UI, wxUpdateUIEventHandler(TopFrame::OnToolsFreeDVReporterUI));
     this->Connect(m_menuItemTextMessaging->GetId(), wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(TopFrame::OnToolsTextMessaging));
     this->Connect(m_menuItemTextMessaging->GetId(), wxEVT_UPDATE_UI, wxUpdateUIEventHandler(TopFrame::OnToolsTextMessagingUI));
+    this->Connect(m_menuItemGlissando->GetId(), wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(TopFrame::OnToolsGlissando));
     this->Connect(m_menuItemAudio->GetId(), wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(TopFrame::OnToolsAudio));
     this->Connect(m_menuItemAudio->GetId(), wxEVT_UPDATE_UI, wxUpdateUIEventHandler(TopFrame::OnToolsAudioUI));
     this->Connect(m_menuItemFilter->GetId(), wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(TopFrame::OnToolsFilter));

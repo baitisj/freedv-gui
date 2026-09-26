@@ -597,6 +597,7 @@ void MainApp::OnInitCmdLine(wxCmdLineParser& parser)
     parser.AddOption("txfeaturefile", wxEmptyString, "Capture TX features from FARGAN encoder into the provided file.");
     parser.AddOption("txtime", "60", "In UT mode, the amount of time to transmit (default 60 seconds)", wxCMD_LINE_VAL_NUMBER);
     parser.AddOption("txattempts", "1", "In UT mode, the number of times to transmit (default 1)", wxCMD_LINE_VAL_NUMBER);
+    parser.AddSwitch("g", "glissando", "Start with the Glissando console in place of the main window.");
 }
 
 bool MainApp::OnCmdLineParsed(wxCmdLineParser& parser)
@@ -613,6 +614,8 @@ bool MainApp::OnCmdLineParsed(wxCmdLineParser& parser)
     {
         return false;
     }
+
+    glissandoAtStartup = parser.Found("g");
 
     wxString configPath;
     if (parser.Found("f", &configPath))
@@ -882,6 +885,12 @@ bool MainApp::OnInit()
     frame->Layout();    
     frame->Show();
     g_parent = frame;
+
+    // The console reopens if it was open when FreeDV last closed.
+    if (glissandoAtStartup || appConfiguration.glissandoEnabled)
+    {
+        frame->openGlissandoConsole(glissandoAtStartup);
+    }
 
     // Begin test execution
     if (testName != "")
@@ -1293,6 +1302,7 @@ MainFrame::MainFrame(wxWindow *parent) : TopFrame(parent, wxID_ANY, _("FreeDV ")
     m_reporterDialog = nullptr;
     m_textMessagingDialog = nullptr;
     m_textMessagingTransport = nullptr;
+    m_glissandoConsole = nullptr;
     m_filterDialog = nullptr;
 
     // Initialize panel pointers to null before creation since "page changed" 
@@ -2600,6 +2610,14 @@ void MainFrame::OnTimer(wxTimerEvent &evt)
 
 void MainFrame::topFrame_OnClose( wxCloseEvent& event )
 {
+    // The console goes with the main window; remember it was open so it
+    // comes back next time.
+    if (!terminating_ && m_glissandoConsole != nullptr)
+    {
+        closeGlissandoConsole_();
+        wxGetApp().appConfiguration.glissandoEnabled = true;
+    }
+
     if (terminating_)
     {
         // A previous close request already kicked off the async RX/PTT

@@ -202,6 +202,54 @@ void TextMessagingProtocol::discardQueuedLocked(std::vector<PendingEvent>& event
     }
 }
 
+AirTiming AirTiming::forFrameSeconds(double frameSeconds, int bytesPerFrame,
+                                     double decodeLatencySeconds)
+{
+    AirTiming timing;
+    if (frameSeconds <= 0.0 || bytesPerFrame <= 0) return timing;
+
+    auto ms = [](double seconds) { return (int)std::lround(seconds * 1000.0); };
+    auto frames = [bytesPerFrame](int bytes) { return (bytes + bytesPerFrame - 1) / bytesPerFrame; };
+
+    double signallingAir = frames(SIGNALLING_FRAME_BYTES) * frameSeconds;
+    double textAir = frames(TEXT_FRAME_BYTES) * frameSeconds;
+
+    // The far end hears a burst of ours only once its first frame has been
+    // decoded, a frame and a search after it began, and we hear its answer
+    // the same way; the codec2 waits stay as they are on top of that.
+    double seen = frameSeconds + decodeLatencySeconds;
+
+    timing.replyWindowMs = REPLY_WINDOW_MILLISECONDS + ms(seen);
+    timing.turnaroundJitterMs = TURNAROUND_JITTER_MILLISECONDS + ms(frameSeconds / 2.0);
+    timing.textFragmentAirMs = ms(textAir) + TEXT_FRAGMENT_AIR_MILLISECONDS;
+    timing.signallingFollowedReservationMs = 2 * timing.textFragmentAirMs;
+    timing.maxChannelBusyMs = std::max(MAX_CHANNEL_BUSY_MILLISECONDS,
+                                       (MAX_FRAGMENTS_PER_MESSAGE + 1) * timing.textFragmentAirMs);
+
+    // From the end of our burst: the far end decodes it, turns around, sends
+    // a signalling burst, and we decode that.
+    int answer = ms(2.0 * decodeLatencySeconds + signallingAir) + TURNAROUND_AFTER_RX_MILLISECONDS;
+    timing.ackTimeoutMs = ACK_TIMEOUT_MILLISECONDS + answer;
+    timing.pingTimeoutMs = PING_TIMEOUT_MILLISECONDS + answer;
+    timing.retryBackoffMs = RETRY_BACKOFF_MILLISECONDS + ms(frameSeconds / 2.0);
+    timing.reassemblyTimeoutMs = std::max(
+        REASSEMBLY_TIMEOUT_MILLISECONDS,
+        3 * (MAX_FRAGMENTS_PER_MESSAGE + 1) * timing.textFragmentAirMs / 2 + timing.ackTimeoutMs);
+    return timing;
+}
+
+void TextMessagingProtocol::setAirTiming(const AirTiming& timing)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    timing_ = timing;
+}
+
+AirTiming TextMessagingProtocol::airTiming() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return timing_;
+}
+
 void TextMessagingProtocol::setClocks(std::function<uint64_t()> monotonicMs,
                                       std::function<std::time_t()> wallClock)
 {
@@ -603,7 +651,7 @@ void TextMessagingProtocol::onFrameReceived(const Frame& frame, float snr)
 
         // The station we just heard is turning its receiver back on; keying
         // straight away talks over it.
-        deferTransmissionLocked(monotonicMs_(), TURNAROUND_AFTER_RX_MILLISECONDS, 0);
+        deferTransmissionLocked(monotonicMs_(), timing_.turnaroundAfterRxMs, 0);
 
         std::time_t now = wallClock_();
         stations_.heard(frame.originCallsign, snr, now);
@@ -660,7 +708,7 @@ void TextMessagingProtocol::reserveChannelForKeyingLocked(const Frame& frame, ui
         // Only "more follows", and only ever lengthens a reservation.
         if (frame.burstsFollowing == 0) return;
 
-        uint64_t until = nowMs + (uint64_t)SIGNALLING_FOLLOWED_RESERVATION_MILLISECONDS;
+        uint64_t until = nowMs + (uint64_t)timing_.signallingFollowedReservationMs;
         if (until > channelReservedUntilMs_) channelReservedUntilMs_ = until;
         return;
     }
@@ -668,7 +716,7 @@ void TextMessagingProtocol::reserveChannelForKeyingLocked(const Frame& frame, ui
     channelReservedUntilMs_ =
         frame.burstsFollowing == 0
             ? 0
-            : nowMs + (uint64_t)frame.burstsFollowing * (uint64_t)TEXT_FRAGMENT_AIR_MILLISECONDS;
+            : nowMs + (uint64_t)frame.burstsFollowing * (uint64_t)timing_.textFragmentAirMs;
 }
 
 void TextMessagingProtocol::handleIncomingFragmentLocked(const Frame& frame, float snr,
@@ -716,7 +764,7 @@ void TextMessagingProtocol::handleIncomingFragmentLocked(const Frame& frame, flo
     reassembly.lastHeardMs = nowMs;
     reassembly.heardThisKeying = true;
     reassembly.keyingEndsMs =
-        nowMs + (uint64_t)frame.burstsFollowing * (uint64_t)TEXT_FRAGMENT_AIR_MILLISECONDS;
+        nowMs + (uint64_t)frame.burstsFollowing * (uint64_t)timing_.textFragmentAirMs;
     reassembly.snr = (reassembly.snr + snr) / 2.0f;
 
     uint32_t completeMask = (1u << frame.fragmentCount) - 1u;
@@ -858,7 +906,7 @@ void TextMessagingProtocol::purgeStaleReassembliesLocked(uint64_t nowMs)
 {
     for (auto it = inbox_.begin(); it != inbox_.end();)
     {
-        if (nowMs - it->second.lastHeardMs > (uint64_t)REASSEMBLY_TIMEOUT_MILLISECONDS)
+        if (nowMs - it->second.lastHeardMs > (uint64_t)timing_.reassemblyTimeoutMs)
         {
             it = inbox_.erase(it);
         }
@@ -944,7 +992,7 @@ uint64_t TextMessagingProtocol::quietUntilLocked(bool forReply) const
     {
         if (pending.state != TransmissionState::AwaitingAck) continue;
 
-        uint64_t replyBy = pending.sentAtMs + (uint64_t)REPLY_WINDOW_MILLISECONDS;
+        uint64_t replyBy = pending.sentAtMs + (uint64_t)timing_.replyWindowMs;
         if (replyBy > quietUntil) quietUntil = replyBy;
     }
 
@@ -966,7 +1014,7 @@ bool TextMessagingProtocol::channelFrozenLocked(uint64_t nowMs)
         // Everybody who heard that burst comes unfrozen at the same instant,
         // and two of them keying together cannot sense each other. A random
         // moment's pause spreads them out.
-        if (channelBusy_) deferTransmissionLocked(nowMs, 0, TURNAROUND_JITTER_MILLISECONDS);
+        if (channelBusy_) deferTransmissionLocked(nowMs, 0, timing_.turnaroundJitterMs);
         channelBusy_ = false;
         return false;
     }
@@ -977,7 +1025,7 @@ bool TextMessagingProtocol::channelFrozenLocked(uint64_t nowMs)
         channelBusySinceMs_ = nowMs;
     }
 
-    return nowMs - channelBusySinceMs_ < (uint64_t)MAX_CHANNEL_BUSY_MILLISECONDS;
+    return nowMs - channelBusySinceMs_ < (uint64_t)timing_.maxChannelBusyMs;
 }
 
 // Time spent frozen does not count against anything outstanding. The
@@ -1069,8 +1117,8 @@ void TextMessagingProtocol::serviceOutboxLocked(uint64_t nowMs, bool frozen,
                 continue;
             }
 
-            deferTransmissionLocked(nowMs, TURNAROUND_AFTER_TX_MILLISECONDS,
-                                    TURNAROUND_JITTER_MILLISECONDS);
+            deferTransmissionLocked(nowMs, timing_.turnaroundAfterTxMs,
+                                    timing_.turnaroundJitterMs);
 
             // Having answered somebody, give them the channel before keying
             // anything of our own: see the note on REPLY_WINDOW_MILLISECONDS.
@@ -1078,8 +1126,8 @@ void TextMessagingProtocol::serviceOutboxLocked(uint64_t nowMs, bool frozen,
             // which can be later than our unkeying.
             if (sent.reply)
             {
-                deferOwnTrafficLocked(std::max(nowMs, keyingHeldUntilMs_), REPLY_WINDOW_MILLISECONDS,
-                                      TURNAROUND_JITTER_MILLISECONDS);
+                deferOwnTrafficLocked(std::max(nowMs, keyingHeldUntilMs_), timing_.replyWindowMs,
+                                      timing_.turnaroundJitterMs);
             }
 
             sent.sentAtMs = nowMs;
@@ -1087,8 +1135,8 @@ void TextMessagingProtocol::serviceOutboxLocked(uint64_t nowMs, bool frozen,
             if (sent.expectsAck)
             {
                 sent.state = TransmissionState::AwaitingAck;
-                sent.deadlineMs = nowMs + (uint64_t)(sent.isPing ? PING_TIMEOUT_MILLISECONDS
-                                                                 : ACK_TIMEOUT_MILLISECONDS);
+                sent.deadlineMs = nowMs + (uint64_t)(sent.isPing ? timing_.pingTimeoutMs
+                                                                 : timing_.ackTimeoutMs);
                 updateStatusLocked(sent, MessageStatus::AwaitingAck, events);
                 i++;
             }
@@ -1130,8 +1178,8 @@ void TextMessagingProtocol::serviceOutboxLocked(uint64_t nowMs, bool frozen,
                     // fragment, so a fragment's air time bounds it.
                     keyingHeldUntilMs_ =
                         entries.size() > 1 && entries[0]->mode == BurstMode::Signalling
-                            ? nowMs + (uint64_t)TEXT_FRAGMENT_AIR_MILLISECONDS +
-                                  (uint64_t)SIGNALLING_FOLLOWED_RESERVATION_MILLISECONDS
+                            ? nowMs + (uint64_t)timing_.textFragmentAirMs +
+                                  (uint64_t)timing_.signallingFollowedReservationMs
                             : 0;
 
                     for (PendingTransmission* entry : entries)
@@ -1173,7 +1221,7 @@ bool TextMessagingProtocol::retryOrFailLocked(size_t index, uint64_t nowMs,
     {
         waiting.retries++;
         waiting.state = TransmissionState::Queued;
-        waiting.notBeforeMs = nowMs + randomDelayLocked(RETRY_BACKOFF_MILLISECONDS * waiting.retries);
+        waiting.notBeforeMs = nowMs + randomDelayLocked(timing_.retryBackoffMs * waiting.retries);
         updateStatusLocked(waiting, MessageStatus::Retrying, events);
         return false;
     }

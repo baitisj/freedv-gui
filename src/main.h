@@ -77,6 +77,8 @@
 #include "gui/controls/plot_scalar.h"
 #include "gui/controls/plot_scatter.h"
 #include "gui/controls/plot_waterfall.h"
+#include "gui/glissando/GlissandoConsole.h"
+#include "text_messaging/TextMessagingTypes.h"
 #include "gui/controls/plot_spectrum.h"
 #include "sndfile.h"
 #include "sox_biquad.h"
@@ -204,6 +206,9 @@ class MainApp : public wxApp
         FreeDVConfiguration appConfiguration;
         wxString customConfigFileName;
         wxString defaultConfigFilePath;
+
+        // --glissando: open the Glissando console in place of the main window.
+        bool glissandoAtStartup = false;
         
         // PTT -----------------------------------    
         int        m_intHamlibRig;
@@ -297,7 +302,7 @@ class TxRxThread;
 // @brief
 //
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=
-class MainFrame : public TopFrame
+class MainFrame : public TopFrame, public IGlissandoHost
 {
     public:
         MainFrame(wxWindow *parent);
@@ -307,6 +312,7 @@ class MainFrame : public TopFrame
         FreeDVReporterDialog*   m_reporterDialog;
         TextMessagingDialog*    m_textMessagingDialog;
         TextMessagingTransport* m_textMessagingTransport;
+        GlissandoConsole*       m_glissandoConsole;
         PlotSpectrum*           m_panelSpectrum;
         PlotWaterfall*          m_panelWaterfall;
         PlotScalar*             m_panelSpeechIn;
@@ -401,6 +407,32 @@ class MainFrame : public TopFrame
     void startTextMessaging_();
     void stopTextMessaging_();
 
+public:
+    // The Glissando console (glissando_host.cpp). Opening it switches text
+    // chat to the Glissando mode; closing it switches chat back to the codec2
+    // data modes. With hideMainWindow the console stands in for this window,
+    // and closing it quits.
+    void openGlissandoConsole(bool hideMainWindow);
+
+    // IGlissandoHost
+    virtual GlissandoTelemetry glissandoTelemetry() override;
+    virtual void glissandoSettingsChanged(const GlissandoConsoleSettings& settings) override;
+    virtual bool glissandoSpectrum(std::vector<float>& magnitudesDb, double& nyquistHz) override;
+    virtual void glissandoSetAudioRunning(bool running) override;
+    virtual void glissandoSetRigFrequency(double hz) override;
+    virtual void glissandoShowChat() override;
+    virtual void glissandoShowMainWindow(bool show) override;
+    virtual bool glissandoMainWindowShown() override;
+    virtual void glissandoConsoleClosed(const wxRect& lastPosition) override;
+
+private:
+    // Pushes the console's choices to the chat modem and the protocol's
+    // timers to match; called on every change and every refresh.
+    void applyGlissandoToModem_(bool enabled);
+    void closeGlissandoConsole_();
+    GlissandoConsoleSettings loadGlissandoSettings_() const;
+    TextMessaging::AirTiming appliedAirTiming_;
+
     bool                    m_schedule_restore;
 
     // Voice Keyer state machine
@@ -441,6 +473,7 @@ class MainFrame : public TopFrame
         void OnToolsFreeDVReporter( wxCommandEvent& event ) override;
         void OnToolsFreeDVReporterUI( wxUpdateUIEvent& event ) override;
         void OnToolsTextMessaging( wxCommandEvent& event ) override;
+        void OnToolsGlissando( wxCommandEvent& event ) override;
         void OnToolsTextMessagingUI( wxUpdateUIEvent& event ) override;
         void OnToolsAudio( wxCommandEvent& event ) override;
         void OnToolsAudioUI( wxUpdateUIEvent& event ) override;

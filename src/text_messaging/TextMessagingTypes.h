@@ -227,6 +227,38 @@ constexpr int MAX_RETRY_BACKOFF_MILLISECONDS = RETRY_BACKOFF_MILLISECONDS * MAX_
 // the wait for a busy channel.
 constexpr int REASSEMBLY_TIMEOUT_MILLISECONDS = 120 * 1000;
 
+// Every protocol timer in one place, so a transport much slower than the
+// codec2 data modes can scale them. The defaults are the constants above and
+// are what the codec2 transport runs with; see AirTiming::forFrameSeconds()
+// for a mode whose single burst takes tens of seconds.
+struct AirTiming
+{
+    int turnaroundAfterRxMs = TURNAROUND_AFTER_RX_MILLISECONDS;
+    int turnaroundAfterTxMs = TURNAROUND_AFTER_TX_MILLISECONDS;
+    int replyWindowMs = REPLY_WINDOW_MILLISECONDS;
+    int turnaroundJitterMs = TURNAROUND_JITTER_MILLISECONDS;
+    int textFragmentAirMs = TEXT_FRAGMENT_AIR_MILLISECONDS;
+    int signallingFollowedReservationMs = SIGNALLING_FOLLOWED_RESERVATION_MILLISECONDS;
+    int maxChannelBusyMs = MAX_CHANNEL_BUSY_MILLISECONDS;
+    int ackTimeoutMs = ACK_TIMEOUT_MILLISECONDS;
+    int pingTimeoutMs = PING_TIMEOUT_MILLISECONDS;
+    int retryBackoffMs = RETRY_BACKOFF_MILLISECONDS;
+    int reassemblyTimeoutMs = REASSEMBLY_TIMEOUT_MILLISECONDS;
+
+    int maxTurnaroundMs() const { return replyWindowMs + turnaroundJitterMs; }
+
+    // For a modem that sends a chat burst as a run of fixed length frames,
+    // each carrying bytesPerFrame bytes and taking frameSeconds, and that
+    // only reports a frame once all of it has arrived plus up to
+    // decodeLatencySeconds of searching. A signalling burst is at most
+    // SIGNALLING_FRAME_BYTES and a text burst at most TEXT_FRAME_BYTES.
+    // Carrier sense on such a modem only sees a burst once its first frame
+    // decodes, so every wait for the far end is sized to the whole of the
+    // burst it is waiting for, not to a turnaround.
+    static AirTiming forFrameSeconds(double frameSeconds, int bytesPerFrame,
+                                     double decodeLatencySeconds);
+};
+
 // What the station is currently waiting to hear back, which is what the chat
 // window's status line reports while an acknowledgement cycle is running.
 enum class AckWait

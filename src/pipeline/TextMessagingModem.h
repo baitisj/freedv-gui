@@ -38,10 +38,15 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <vector>
 
 #include "FrameCodec.h"
+#include "TextMessagingTypes.h"
+#include "glissando/GlissandoLink.h"
+#include "glissando/GlissandoModem.h"
+#include "glissando/GlissandoReceiver.h"
 
 // Forward declaration of the struct implemented by Codec2.
 extern "C"
@@ -104,6 +109,39 @@ public:
     // bench lost a frame that way. Safe to call from any thread.
     void resetReceivers();
 
+    // Glissando: instead of the codec2 data modes, chat bursts go out as the
+    // Glissando melodic chirp mode, cut into 77 bit segments (see
+    // GlissandoLink.h), and the receive audio goes to a Glissando streaming
+    // receiver. Safe to call from any thread, before or after open().
+    struct GlissandoConfig
+    {
+        bool enabled = false;
+        int gear = 3;                   // chosen by hand
+        bool autoGear = true;           // shift from the last report
+        Glissando::Scale scale = Glissando::Scale::Pentatonic;
+        double tuningOffsetHz = 0.0;
+        bool listenAllGears = true;
+    };
+
+    void setGlissando(const GlissandoConfig& config);
+    GlissandoConfig glissandoConfig() const;
+
+    struct GlissandoStatus
+    {
+        bool haveReport = false;        // a frame has been decoded
+        Glissando::ChannelReport report;
+        int heardGear = 0;
+        uint64_t heardAtMs = 0;         // steady clock
+        int advisedGear = 0;            // recommendGear() of the report, 0 none
+        int transmitGear = 3;           // the tempo modulate() will use now
+    };
+
+    GlissandoStatus glissandoStatus() const;
+
+    // The protocol timers suited to what is on the air now: the codec2
+    // defaults, or ones sized to the Glissando tempo we transmit at.
+    TextMessaging::AirTiming airTiming() const;
+
 private:
     struct Demodulator
     {
@@ -134,6 +172,19 @@ private:
     std::mutex rxMutex_;
     std::mutex callbackMutex_;
     FrameCallback frameCallback_;
+
+    // Glissando. The receiver runs its own worker thread; its callback lands
+    // in onGlissandoDecode(), which reassembles segments into chat frames.
+    void onGlissandoDecode(const Glissando::StreamDecode& decode);
+    void configureGlissandoReceiverLocked();
+    int transmitGearLocked() const;
+
+    mutable std::mutex glissandoMutex_;
+    GlissandoConfig glissando_;
+    GlissandoStatus glissandoStatus_;
+    Glissando::Reassembler reassembler_;
+    std::unique_ptr<Glissando::StreamingReceiver> glissandoRx_;
+    std::atomic<bool> glissandoOn_;
 };
 
 // The application wide modem. Opened and closed by MainFrame on the GUI

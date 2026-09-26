@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
@@ -57,6 +58,18 @@ constexpr int MODEM_SAMPLE_RATE = 8000;
 // this the oldest samples are dropped: they are older than any burst we could
 // still decode.
 constexpr int MAX_BUFFERED_SAMPLES = MODEM_SAMPLE_RATE * 4;
+
+// Glissando is constant envelope, so its peak is its level: -6 dBFS leaves
+// the transmit level control room either way.
+constexpr float GLISSANDO_PEAK = 16384.0f;
+
+// Allowance for a receiver search to finish once its audio is in.
+constexpr double GLISSANDO_SEARCH_SECONDS = 1.0;
+
+// Automatic gear shifting follows the last frame heard for this long, then
+// falls back to the tempo chosen by hand: an old report says nothing about
+// the band now.
+constexpr int GLISSANDO_REPORT_LIFETIME_MS = 15 * 60 * 1000;
 
 uint64_t steadyMs()
 {
@@ -104,13 +117,19 @@ TextMessagingModem::TextMessagingModem()
     , textTx_(nullptr)
     , open_(false)
     , lastSyncMs_(0)
+    , reassembler_(SIGNALLING_FRAME_BYTES, TEXT_FRAME_BYTES)
+    , glissandoRx_(new Glissando::StreamingReceiver())
+    , glissandoOn_(false)
 {
-    // empty
+    glissandoRx_->setDecodeCallback([this](const Glissando::StreamDecode& decode) {
+        onGlissandoDecode(decode);
+    });
 }
 
 TextMessagingModem::~TextMessagingModem()
 {
     close();
+    glissandoRx_->stop();
 }
 
 bool TextMessagingModem::open()
@@ -182,6 +201,13 @@ bool TextMessagingModem::open()
     freedv_set_verbose(signallingTx_, 0);
     freedv_set_verbose(textTx_, 0);
 
+    {
+        std::lock_guard<std::mutex> glissandoLock(glissandoMutex_);
+        configureGlissandoReceiverLocked();
+        reassembler_.reset();
+    }
+    glissandoRx_->start();
+
     open_ = true;
     return true;
 }
@@ -195,6 +221,7 @@ void TextMessagingModem::close()
 void TextMessagingModem::closeLocked()
 {
     open_ = false;
+    glissandoRx_->stop();
 
     for (struct freedv** modem : {&signallingRx_.modem, &textRx_.modem, &signallingTx_, &textTx_})
     {
@@ -269,6 +296,43 @@ bool TextMessagingModem::modulate(const std::vector<OutgoingBurst>& bursts,
     if (!open_) return false;
 
     samplesOut.clear();
+
+    if (glissandoOn_.load(std::memory_order_acquire))
+    {
+        Glissando::ModemSettings settings;
+        {
+            std::lock_guard<std::mutex> lock(glissandoMutex_);
+            settings.gear = transmitGearLocked();
+            settings.scale = glissando_.scale;
+            settings.tuningOffsetHz = glissando_.tuningOffsetHz;
+        }
+        const Glissando::GearInfo& gear = Glissando::gearInfo(settings.gear);
+
+        std::vector<Glissando::LinkBurst> linkBursts;
+        for (const OutgoingBurst& burst : bursts)
+        {
+            linkBursts.push_back({burst.mode == BurstMode::Text, burst.frame});
+        }
+        std::vector<Glissando::Payload> payloads = Glissando::segmentBursts(linkBursts, gear.voices);
+
+        for (size_t first = 0; first + gear.voices <= payloads.size(); first += gear.voices)
+        {
+            std::vector<Glissando::Payload> voices(payloads.begin() + first,
+                                                   payloads.begin() + first + gear.voices);
+            std::vector<float> audio = Glissando::modulate(voices, settings);
+            for (float sample : audio)
+            {
+                samplesOut.push_back((short)std::lround(sample * GLISSANDO_PEAK));
+            }
+        }
+
+        if (rxLogEnabled())
+        {
+            log_info("TX: %d Glissando frame(s) at %s, %.1f s", (int)(payloads.size() / gear.voices),
+                     gear.tempo, samplesOut.size() / (double)MODEM_SAMPLE_RATE);
+        }
+        return !samplesOut.empty();
+    }
 
     for (const OutgoingBurst& burst : bursts)
     {
@@ -366,6 +430,13 @@ void TextMessagingModem::demodulate(const short* samples, int numSamples)
 {
     if (samples == nullptr || numSamples <= 0) return;
 
+    if (glissandoOn_.load(std::memory_order_acquire))
+    {
+        // The receiver copies and returns; the search runs on its own thread.
+        glissandoRx_->push(samples, numSamples);
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(rxMutex_);
     if (!open_) return;
 
@@ -375,6 +446,12 @@ void TextMessagingModem::demodulate(const short* samples, int numSamples)
 
 void TextMessagingModem::resetReceivers()
 {
+    {
+        std::lock_guard<std::mutex> lock(glissandoMutex_);
+        reassembler_.reset();
+    }
+    glissandoRx_->reset();
+
     std::lock_guard<std::mutex> lock(rxMutex_);
     if (!open_) return;
 
@@ -394,8 +471,139 @@ bool TextMessagingModem::isReceiving() const
 {
     if (!open_) return false;
 
+    if (glissandoOn_.load(std::memory_order_acquire))
+    {
+        // A frame of a burst decodes one frame length after the one before
+        // it, plus the search; hold the channel across that gap.
+        int gear = 0;
+        {
+            std::lock_guard<std::mutex> lock(glissandoMutex_);
+            gear = glissandoStatus_.heardGear != 0 ? glissandoStatus_.heardGear : transmitGearLocked();
+        }
+        long long hold = (long long)(Glissando::gearInfo(gear).frameSamples() * 1.5);
+        return glissandoRx_->isBusy(hold);
+    }
+
     uint64_t last = lastSyncMs_.load(std::memory_order_acquire);
     return last != 0 && steadyMs() - last < (uint64_t)CHANNEL_BUSY_HOLD_MILLISECONDS;
+}
+
+void TextMessagingModem::setGlissando(const GlissandoConfig& config)
+{
+    bool wasOn = false;
+    {
+        std::lock_guard<std::mutex> lock(glissandoMutex_);
+        wasOn = glissando_.enabled;
+        bool retuned = config.scale != glissando_.scale ||
+                       config.tuningOffsetHz != glissando_.tuningOffsetHz;
+        glissando_ = config;
+        glissandoStatus_.transmitGear = transmitGearLocked();
+        configureGlissandoReceiverLocked();
+        if (retuned || wasOn != config.enabled) reassembler_.reset();
+    }
+    if (wasOn != config.enabled) glissandoRx_->reset();
+    glissandoOn_.store(config.enabled, std::memory_order_release);
+}
+
+TextMessagingModem::GlissandoConfig TextMessagingModem::glissandoConfig() const
+{
+    std::lock_guard<std::mutex> lock(glissandoMutex_);
+    return glissando_;
+}
+
+TextMessagingModem::GlissandoStatus TextMessagingModem::glissandoStatus() const
+{
+    std::lock_guard<std::mutex> lock(glissandoMutex_);
+    GlissandoStatus status = glissandoStatus_;
+    status.transmitGear = transmitGearLocked();
+    return status;
+}
+
+AirTiming TextMessagingModem::airTiming() const
+{
+    if (!glissandoOn_.load(std::memory_order_acquire)) return AirTiming();
+
+    int gear = 0;
+    {
+        std::lock_guard<std::mutex> lock(glissandoMutex_);
+        gear = transmitGearLocked();
+    }
+    const Glissando::GearInfo& info = Glissando::gearInfo(gear);
+    // The receiver searches every quarter frame, and a search takes a
+    // moment on top of that.
+    return AirTiming::forFrameSeconds(info.frameSeconds(),
+                                      Glissando::SEGMENT_DATA_BYTES * info.voices,
+                                      info.frameSeconds() / 4.0 + GLISSANDO_SEARCH_SECONDS);
+}
+
+int TextMessagingModem::transmitGearLocked() const
+{
+    if (glissando_.autoGear && glissandoStatus_.haveReport && glissandoStatus_.advisedGear != 0 &&
+        steadyMs() - glissandoStatus_.heardAtMs < (uint64_t)GLISSANDO_REPORT_LIFETIME_MS)
+    {
+        return glissandoStatus_.advisedGear;
+    }
+    return glissando_.gear;
+}
+
+void TextMessagingModem::configureGlissandoReceiverLocked()
+{
+    std::vector<int> gears;
+    if (glissando_.listenAllGears)
+    {
+        for (int gear = Glissando::MIN_GEAR; gear <= Glissando::MAX_GEAR; gear++) gears.push_back(gear);
+    }
+    else
+    {
+        gears.push_back(glissando_.gear);
+        int current = transmitGearLocked();
+        if (current != glissando_.gear) gears.push_back(current);
+    }
+    glissandoRx_->configure(gears, glissando_.scale, glissando_.tuningOffsetHz);
+}
+
+void TextMessagingModem::onGlissandoDecode(const Glissando::StreamDecode& decode)
+{
+    const Glissando::Decode& d = decode.decode;
+    Glissando::LinkBurst burst;
+    bool complete = false;
+    float snr = (float)d.report.snrDb;
+    {
+        std::lock_guard<std::mutex> lock(glissandoMutex_);
+        glissandoStatus_.haveReport = true;
+        glissandoStatus_.report = d.report;
+        glissandoStatus_.heardGear = decode.gear;
+        glissandoStatus_.heardAtMs = steadyMs();
+        glissandoStatus_.advisedGear = Glissando::recommendGear(d.report.snrDb, d.report.dopplerHz);
+
+        // The same waveform can be decoded as more than one tempo (Presto
+        // and the duet's low voice), or by two overlapping searches.
+        long long duplicate = Glissando::gearInfo(decode.gear).samplesPerSymbol();
+        complete = reassembler_.add(d.payload, d.startSample, duplicate, burst);
+    }
+    lastSyncMs_.store(steadyMs(), std::memory_order_release);
+
+    if (rxLogEnabled())
+    {
+        log_info("RX: Glissando %s voice %d, %.1f dB, %.2f Hz Doppler, offset %+.1f Hz%s",
+                 Glissando::gearInfo(decode.gear).tempo, d.voice, d.report.snrDb,
+                 d.report.dopplerHz, d.frequencyOffsetHz, complete ? ", burst complete" : "");
+    }
+    if (!complete) return;
+
+    Frame frame;
+    if (!FrameCodec::decode(burst.bytes.data(), (int)burst.bytes.size(), frame))
+    {
+        if (rxLogEnabled()) log_info("RX: Glissando burst is not a chat frame");
+        return;
+    }
+
+    FrameCallback callback;
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        callback = frameCallback_;
+    }
+    if (callback) callback(frame, snr);
 }
 
 TextMessagingModem& textMessagingModem()

@@ -93,6 +93,22 @@ public:
     // 97.305), and not at all while the operating frequency is unknown. On by
     // default: an operator elsewhere turns it off.
     ConfigurationDataElement<bool> textChatUsDataSegmentsOnly;
+
+    // The Glissando console and the melodic chirp mode it drives. When
+    // glissandoEnabled is set, text chat goes out as Glissando instead of
+    // over the codec2 data modes. Tuning offset and scan rate are stored in
+    // tenths (Hz, rows per second) so they fit the integer config type.
+    ConfigurationDataElement<bool> glissandoEnabled;
+    ConfigurationDataElement<int> glissandoGear;
+    ConfigurationDataElement<bool> glissandoAutoGear;
+    ConfigurationDataElement<wxString> glissandoScale;
+    ConfigurationDataElement<int> glissandoTuningDeciHz;
+    ConfigurationDataElement<bool> glissandoListenAllGears;
+    ConfigurationDataElement<int> glissandoScanRateDeci;
+    ConfigurationDataElement<long> glissandoWindowLeft;
+    ConfigurationDataElement<long> glissandoWindowTop;
+    ConfigurationDataElement<long> glissandoWindowWidth;
+    ConfigurationDataElement<long> glissandoWindowHeight;
     ConfigurationDataElement<bool> multipleReceiveOnSingleThread;
     
     ConfigurationDataElement<wxString> quickRecordRawPath;

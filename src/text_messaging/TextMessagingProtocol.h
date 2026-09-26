@@ -129,6 +129,11 @@ public:
     // (timeouts) and the wall clock is what the chat window timestamps with.
     void setClocks(std::function<uint64_t()> monotonicMs, std::function<std::time_t()> wallClock);
 
+    // Replaces every timer the protocol runs; see AirTiming. Takes effect
+    // for waits started after the call.
+    void setAirTiming(const AirTiming& timing);
+    AirTiming airTiming() const;
+
     // Queues a message. Pass an empty destination to broadcast. Returns false
     // with a reason in errorOut if the message cannot be sent at all: no
     // callsign configured, empty or oversized text, or no transport.
@@ -306,6 +311,7 @@ private:
 
     std::function<uint64_t()> monotonicMs_;
     std::function<std::time_t()> wallClock_;
+    AirTiming timing_;
 };
 
 } // namespace TextMessaging
