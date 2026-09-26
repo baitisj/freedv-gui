@@ -987,6 +987,19 @@ std::shared_ptr<const VoiceTemplates> voiceTemplates(Scale scale, int voice, int
     return built;
 }
 
+// The all-zero word passes the CRC (its CRC is zero), and it is what a frame
+// decodes to when much of it is digital silence: symbols with no energy give
+// zero LLRs, which lean on nothing, and a noiseless tail of a real frame
+// then measures a huge Es/N0. So, as FT8 decoders do, never report it.
+// GlissandoLink never sends it: the first segment of a burst starts with
+// the chat frame's type byte, which is never zero.
+static bool allZero(const Payload& payload)
+{
+    for (uint8_t bit : payload)
+        if (bit) return false;
+    return true;
+}
+
 VoiceDecode receiveVoice(const ComplexSignal& z, const GearInfo& gear, const VoiceTemplates& voice,
                          long long searchFrom, long long searchTo, double maxOffsetHz, int candidates)
 {
@@ -1009,7 +1022,7 @@ VoiceDecode receiveVoice(const ComplexSignal& z, const GearInfo& gear, const Voi
         // Too weak to decode by a wide margin: no Viterbi, so no chance of
         // a CRC passing by luck (see MIN_ES_OVER_N0).
         Payload payload{};
-        bool ok = esOverN0 >= MIN_ES_OVER_N0 && decodeFrame(llrs, payload);
+        bool ok = esOverN0 >= MIN_ES_OVER_N0 && decodeFrame(llrs, payload) && !allZero(payload);
 
         if (!result.haveCandidate)
         {

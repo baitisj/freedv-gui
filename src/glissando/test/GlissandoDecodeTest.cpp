@@ -3,7 +3,8 @@
 // Purpose:         Blind decoding with the batch receiver: every gear in
 //                  AWGN a few dB above the prototype's measured thresholds,
 //                  every scale, a tuning offset, a clip made by the
-//                  prototype, and noise alone.
+//                  prototype, noise alone, and a noiseless frame between
+//                  stretches of digital silence.
 //=========================================================================
 
 #include <cmath>
@@ -213,6 +214,49 @@ void testNoiseOnly()
     CHECK(falseDecodes == 0);
 }
 
+
+// A noiseless loopback: a Presto frame, quantised as a sound card would,
+// with digital silence before and after, searched at every gear. Windows
+// that catch part of the frame and part of the silence used to decode as
+// the all-zero word at a wildly high SNR.
+void testSilenceAround()
+{
+    Random rng(0x51137);
+    Payload sent = rng.payload();
+    ModemSettings tx;
+    tx.gear = 4;
+    std::vector<float> frame = modulate({sent}, tx);
+
+    int falseDecodes = 0;
+    int found = 0;
+    for (int gear = MIN_GEAR; gear <= MAX_GEAR; gear++)
+    {
+        const long long frameSamples = gearInfo(gear).frameSamples();
+        std::vector<float> audio((size_t)SAMPLE_RATE_HZ, 0.0f);
+        for (float v : frame) audio.push_back(std::round(v * 16384.0f) / 32768.0f);
+        audio.resize(audio.size() + (size_t)frameSamples, 0.0f);
+
+        ModemSettings rx;
+        rx.gear = gear;
+        const long long searchTo = (long long)audio.size() - frameSamples;
+        for (long long from = 0; from < searchTo; from += frameSamples / 4)
+        {
+            for (const Decode& d : receive(audio.data(), audio.size(), rx, from,
+                                           std::min(from + frameSamples / 4, searchTo)))
+            {
+                if (!d.ok) continue;
+                if (d.payload == sent)
+                    found++;
+                else
+                    falseDecodes++;
+            }
+        }
+    }
+    printf("silence around a clean frame: %d decodes of it, %d false decodes\n", found, falseDecodes);
+    CHECK(found > 0);
+    CHECK(falseDecodes == 0);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -224,6 +268,7 @@ int main(int argc, char** argv)
     testTuningOffset();
     if (argc > 1) testPythonClip(argv[1]);
     testNoiseOnly();
+    testSilenceAround();
     printf("decode tests took %.1f s\n", secondsSince(start));
     if (failures == 0) printf("glissando decode tests passed\n");
     return failures == 0 ? 0 : 1;
