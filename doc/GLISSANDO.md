@@ -87,6 +87,8 @@ The text chat loopback bench runs Glissando too:
 
 Press Engage in both consoles, open both Transmission logs and send.
 
+![Two stations on the loopback bench: A (left) hearing B's broadcast at Presto on the visi-scope, both chat windows below](images/glissando-bench.png)
+
 ## Packaging
 
 The fork's existing AppImage path (`appimage/make-appimage.sh`, built in
