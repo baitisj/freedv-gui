@@ -407,9 +407,10 @@ find_package(Threads REQUIRED)
 message(STATUS "Threads library flags: ${CMAKE_THREAD_LIBS_INIT}")
 
 #
-# Build freedv-backend
-# 
-include(cmake/BuildFreeDVBackend.cmake)
+# Build freedv-backend (audio processing and reporting; vendored in backend/
+# without RADE)
+#
+add_subdirectory(backend)
 
 #
 # Build codec2
@@ -775,36 +776,8 @@ macro(DefineAudioTest utName)
     endif(NOT SANITIZERS_ENABLED)
 endmacro()
 
-DefineAudioTest(RADEV1)
-
-if(NOT ENABLE_RTSAN)
-# Note: loading/saving feature files is currently not RT-safe
-add_test(NAME rade_loss
-         COMMAND sh -c "${CMAKE_CURRENT_SOURCE_DIR}/test/test_rade_loss.sh")
-
-# For sanitizers, we're just seeing if there are any errors from the sanitizer.
-if(NOT SANITIZERS_ENABLED)
-set_tests_properties(rade_loss PROPERTIES PASS_REGULAR_EXPRESSION "PASS")
-endif(NOT SANITIZERS_ENABLED)
-endif(NOT ENABLE_RTSAN)
-
 DefineAudioTest(700D)
 DefineAudioTest(700E)
 DefineAudioTest(1600)
-
-add_test(NAME rade_reporting_clean COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rade_reporting.sh)
-if(NOT SANITIZERS_ENABLED)
-set_tests_properties(rade_reporting_clean PROPERTIES PASS_REGULAR_EXPRESSION "Reporting callsign ZZ0ZZZ @ SNR")
-endif(NOT SANITIZERS_ENABLED)
-
-add_test(NAME rade_reporting_awgn COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rade_reporting.sh ${CMAKE_BINARY_DIR}/codec2_build awgn)
-if(NOT SANITIZERS_ENABLED)
-set_tests_properties(rade_reporting_awgn PROPERTIES PASS_REGULAR_EXPRESSION "Reporting callsign ZZ0ZZZ @ SNR")
-endif(NOT SANITIZERS_ENABLED)
-
-add_test(NAME rade_reporting_mpp COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rade_reporting.sh ${CMAKE_BINARY_DIR}/codec2_build mpp)
-if(NOT SANITIZERS_ENABLED)
-set_tests_properties(rade_reporting_mpp PROPERTIES PASS_REGULAR_EXPRESSION "Reporting callsign ZZ0ZZZ @ SNR")
-endif(NOT SANITIZERS_ENABLED)
 
 endif(UNITTEST)
